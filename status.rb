@@ -1,11 +1,6 @@
 #!/usr/bin/env ruby
 
-def ec(cmd)
-  puts cmd
-  res = `#{cmd}`
-  puts res
-  res
-end
+require 'mharris_ext'
 
 ec "pwd && ls -al && env"
 
