@@ -8,4 +8,5 @@ action "Do Stuff" {
   env = {
     HELLO = "WORLD"
   }
+  secrets = ["GITHUB_TOKEN"]
 }
