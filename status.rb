@@ -15,7 +15,7 @@ if ENV['GITHUB_REF'] == 'refs/heads/master'
   ec 'date > current.txt'
   ec 'git add current.txt'
   ec 'git commit -m "current date"'
-  ec 'git push origin master:docs'
+  ec 'git push origin master:docs -f'
 else
   puts "not master"
 end
