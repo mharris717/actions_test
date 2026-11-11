@@ -1,0 +1,49 @@
+# Test harness: which bot identities can submit an APPROVE review, and does it count?
+# Trigger by commenting "/test-approve gha" or "/test-approve claude" on a PR.
+name: review-identity-test
+on:
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+jobs:
+  approve:
+    if: github.event.issue.pull_request && startsWith(github.event.comment.body, '/test-approve')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Submit APPROVE review as the chosen identity
+        env:
+          ACTIONS_TOKEN: ${{ github.token }}
+          BODY: ${{ github.event.comment.body }}
+          PR: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          mode=$(echo "$BODY" | awk '{print $2}')
+          tok="$ACTIONS_TOKEN"
+          note=""
+          if [ "$mode" = "claude" ]; then
+            oidc=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=claude-code-github-action" | jq -r .value)
+            resp=$(curl -sS -X POST -H "Authorization: Bearer $oidc" https://api.anthropic.com/api/github/github-app-token-exchange)
+            ctok=$(echo "$resp" | jq -r '.token // .app_token // empty')
+            if [ -z "$ctok" ]; then
+              note="Token exchange failed: $(echo "$resp" | head -c 600)"
+            else
+              tok="$ctok"; echo "::add-mask::$ctok"
+            fi
+          fi
+          if [ -z "$note" ]; then
+            out=$(curl -sS -X POST -H "Authorization: Bearer $tok" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/$REPO/pulls/$PR/reviews" \
+              -d "{\"event\":\"APPROVE\",\"body\":\"Test approval submitted by the $mode identity (review-identity-test workflow).\"}")
+            note="APPROVE attempt as $mode: $(echo "$out" | jq -c '{user: .user.login, user_type: .user.type, state, message, errors}')"
+          fi
+          if [ "$mode" = "claude" ] && [ "$tok" != "$ACTIONS_TOKEN" ]; then
+            curl -sS -X DELETE -H "Authorization: Bearer $tok" https://api.github.com/installation/token >/dev/null || true
+          fi
+          echo "$note"
+          jq -n --arg b "$note" '{body: $b}' > body.json
+          curl -sS -X POST -H "Authorization: Bearer $ACTIONS_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/issues/$PR/comments" --data @body.json | jq -r .html_url
